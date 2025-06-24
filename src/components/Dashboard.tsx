@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Plus, Upload, Youtube, Eye, Trash2 } from "lucide-react";
 import { TV, SocketEvents } from "@/types/tv";
 
-const API_URL = "http://localhost:1286";
+const API_URL = "http://localhost:1290";
 
 export default function Dashboard() {
   const [tvs, setTvs] = useState<TV[]>([]);

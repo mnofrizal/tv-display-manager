@@ -12,13 +12,16 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:1286',
+      '/api': 'http://localhost:1290',
       '/socket.io': {
-        target: 'http://localhost:1286',
+        target: 'http://localhost:1290',
         ws: true,
       },
-      '/uploads': 'http://localhost:1286',
+      '/uploads': 'http://localhost:1290',
     },
+  },
+  preview: {
+    port: 1286,
   },
   build: {
     outDir: '../dist',
