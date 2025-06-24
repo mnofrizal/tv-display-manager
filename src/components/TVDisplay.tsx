@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { io } from "socket.io-client";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import {
   ZoomIn,
@@ -10,8 +11,14 @@ import {
   Minimize,
   RefreshCw,
   Settings,
+  Play,
+  Pause,
+  SkipForward,
+  SkipBack,
 } from "lucide-react";
 import { TV, SocketEvents, ZoomCommand } from "@/types/tv";
+
+const API_URL = "http://localhost:1286";
 
 export default function TVDisplay() {
   const { id } = useParams<{ id: string }>();
@@ -26,10 +33,16 @@ export default function TVDisplay() {
   const [showPlayButton, setShowPlayButton] = useState(false);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
 
+  // Slideshow states
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isSlideshow, setIsSlideshow] = useState(true);
+  const [slideshowInterval] = useState(5000); // 5 seconds default
+
   const imageRef = useRef<HTMLImageElement>(null);
   const cursorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const youtubeRef = useRef<HTMLIFrameElement>(null);
   const playButtonTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const slideshowTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!tvId) {
@@ -38,7 +51,7 @@ export default function TVDisplay() {
       return;
     }
 
-    const socketInstance = io();
+    const socketInstance = io(API_URL);
 
     // Join TV room for real-time updates
     socketInstance.emit("joinTvDisplay", tvId);
@@ -93,8 +106,37 @@ export default function TVDisplay() {
       if (playButtonTimeoutRef.current) {
         clearTimeout(playButtonTimeoutRef.current);
       }
+      if (slideshowTimerRef.current) {
+        clearTimeout(slideshowTimerRef.current);
+      }
     };
   }, [tvId]);
+
+  // Slideshow effect
+  useEffect(() => {
+    if (
+      !tvData ||
+      !tvData.images ||
+      tvData.images.length <= 1 ||
+      !isSlideshow
+    ) {
+      return;
+    }
+
+    const interval = tvData.slideshowInterval
+      ? tvData.slideshowInterval * 1000
+      : slideshowInterval;
+
+    slideshowTimerRef.current = setTimeout(() => {
+      setCurrentImageIndex((prev) => (prev + 1) % tvData.images.length);
+    }, interval);
+
+    return () => {
+      if (slideshowTimerRef.current) {
+        clearTimeout(slideshowTimerRef.current);
+      }
+    };
+  }, [tvData, currentImageIndex, isSlideshow, slideshowInterval]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -137,6 +179,20 @@ export default function TVDisplay() {
         case "C":
           setShowControls((prev) => !prev);
           break;
+        case "ArrowLeft":
+          e.preventDefault();
+          prevImage();
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          nextImage();
+          break;
+        case " ":
+        case "p":
+        case "P":
+          e.preventDefault();
+          toggleSlideshow();
+          break;
       }
     };
 
@@ -151,7 +207,7 @@ export default function TVDisplay() {
       setIsLoading(true);
       setError(null);
 
-      const response = await fetch(`/api/tvs/${tvId}`);
+      const response = await fetch(`${API_URL}/api/tvs/${tvId}`);
 
       if (!response.ok) {
         if (response.status === 404) {
@@ -163,6 +219,7 @@ export default function TVDisplay() {
       }
 
       const data = await response.json();
+
       setTvData(data);
     } catch (err) {
       console.error("Error loading TV data:", err);
@@ -354,6 +411,43 @@ export default function TVDisplay() {
     return match && match[2].length === 11 ? match[2] : null;
   };
 
+  // Slideshow control functions
+  const nextImage = () => {
+    if (!tvData?.images || tvData.images.length <= 1) return;
+    setCurrentImageIndex((prev) => (prev + 1) % tvData.images.length);
+  };
+
+  const prevImage = () => {
+    if (!tvData?.images || tvData.images.length <= 1) return;
+    setCurrentImageIndex(
+      (prev) => (prev - 1 + tvData.images.length) % tvData.images.length
+    );
+  };
+
+  const toggleSlideshow = () => {
+    setIsSlideshow((prev) => !prev);
+  };
+
+  // Get current images array (backward compatibility)
+  const getCurrentImages = (): string[] => {
+    if (!tvData) return [];
+
+    // If new images array exists and has content, use it
+    if (tvData.images && tvData.images.length > 0) {
+      return tvData.images;
+    }
+
+    // Fallback to single image for backward compatibility
+    if (tvData.image) {
+      return [tvData.image];
+    }
+
+    return [];
+  };
+
+  const currentImages = getCurrentImages();
+  const hasMultipleImages = currentImages.length > 1;
+
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-black text-white">
@@ -406,22 +500,40 @@ export default function TVDisplay() {
     >
       {/* Main Content */}
       <div className="relative flex h-full items-center justify-center">
-        {tvData.image ? (
-          <div className="flex h-full w-full items-center justify-center">
-            <img
-              ref={imageRef}
-              src={`${tvData.image}?v=${
-                tvData.updatedAt ? new Date(tvData.updatedAt).getTime() : ""
-              }`}
-              alt={`${tvData.name} Display`}
-              className="h-full w-full object-fill"
-              style={{
-                width: "100vw",
-                height: "100vh",
-                objectFit: "fill",
-              }}
-              onError={() => setError("Gagal memuat gambar")}
-            />
+        {currentImages.length > 0 ? (
+          <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
+            <AnimatePresence initial={false}>
+              <motion.img
+                key={currentImageIndex}
+                ref={imageRef}
+                src={`${API_URL}${currentImages[currentImageIndex]}?v=${
+                  tvData.updatedAt ? new Date(tvData.updatedAt).getTime() : ""
+                }`}
+                alt={`${tvData.name} Display ${currentImageIndex + 1}`}
+                className="absolute h-full w-full object-fill"
+                style={{
+                  width: "100vw",
+                  height: "100vh",
+                  objectFit: "fill",
+                  transform: `scale(${zoomLevel})`,
+                }}
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "-100%" }}
+                transition={{
+                  duration: 1.2,
+                  ease: "easeInOut",
+                }}
+                onError={() => setError("Gagal memuat gambar")}
+              />
+            </AnimatePresence>
+
+            {/* Image Counter */}
+            {hasMultipleImages && (
+              <div className="absolute bottom-4 right-4 rounded-lg bg-black/50 px-3 py-1 text-sm text-white">
+                {currentImageIndex + 1} / {currentImages.length}
+              </div>
+            )}
           </div>
         ) : (
           <div className="text-center">
@@ -511,6 +623,41 @@ export default function TVDisplay() {
             </div>
 
             <div className="flex flex-wrap gap-2">
+              {/* Slideshow Controls */}
+              {hasMultipleImages && (
+                <>
+                  <Button
+                    size="sm"
+                    className="bg-black/10"
+                    onClick={prevImage}
+                    title="Previous Image"
+                  >
+                    <SkipBack className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-black/10"
+                    onClick={toggleSlideshow}
+                    title={isSlideshow ? "Pause Slideshow" : "Play Slideshow"}
+                  >
+                    {isSlideshow ? (
+                      <Pause className="h-3 w-3" />
+                    ) : (
+                      <Play className="h-3 w-3" />
+                    )}
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-black/10"
+                    onClick={nextImage}
+                    title="Next Image"
+                  >
+                    <SkipForward className="h-3 w-3" />
+                  </Button>
+                </>
+              )}
+
+              {/* Zoom Controls */}
               <Button size="sm" className="bg-black/10" onClick={zoomIn}>
                 <ZoomIn className="h-3 w-3" />
               </Button>

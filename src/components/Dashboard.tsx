@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Plus, Upload, Youtube, Eye, Trash2 } from "lucide-react";
 import { TV, SocketEvents } from "@/types/tv";
 
+const API_URL = "http://localhost:1286";
+
 export default function Dashboard() {
   const [tvs, setTvs] = useState<TV[]>([]);
   const [isAddTvOpen, setIsAddTvOpen] = useState(false);
@@ -27,11 +29,11 @@ export default function Dashboard() {
   );
   const [newTvName, setNewTvName] = useState("");
   const [youtubeLink, setYoutubeLink] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    const socketInstance = io();
+    const socketInstance = io(API_URL);
 
     // Load initial TV data
     loadTVs();
@@ -104,9 +106,11 @@ export default function Dashboard() {
   const loadTVs = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch("/api/tvs");
+      const response = await fetch(`${API_URL}/api/tvs`);
       if (!response.ok) throw new Error("Failed to load TVs");
       const data = await response.json();
+
+      // Load stored images from localStorage for each TV
       setTvs(data);
     } catch (error) {
       console.error("Error loading TVs:", error);
@@ -125,7 +129,7 @@ export default function Dashboard() {
 
     try {
       setIsLoading(true);
-      const response = await fetch("/api/tvs", {
+      const response = await fetch(`${API_URL}/api/tvs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newTvName }),
@@ -157,7 +161,7 @@ export default function Dashboard() {
 
   const handleUploadImage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile || !currentUploadTvId) {
+    if (selectedFiles.length === 0 || !currentUploadTvId) {
       showNotification("Silakan pilih file gambar", "error");
       return;
     }
@@ -165,12 +169,17 @@ export default function Dashboard() {
     try {
       setIsLoading(true);
       const formData = new FormData();
-      formData.append("image", selectedFile);
-
-      const response = await fetch(`/api/tvs/${currentUploadTvId}/upload`, {
-        method: "POST",
-        body: formData,
+      selectedFiles.forEach((file) => {
+        formData.append("image", file);
       });
+
+      const response = await fetch(
+        `${API_URL}/api/tvs/${currentUploadTvId}/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
 
       if (!response.ok) {
         const error = await response.json();
@@ -178,17 +187,21 @@ export default function Dashboard() {
       }
 
       const updatedTv = await response.json();
+
       setTvs((prev) =>
         prev.map((tv) => (tv.id === currentUploadTvId ? updatedTv : tv))
       );
 
       setIsUploadOpen(false);
-      setSelectedFile(null);
+      setSelectedFiles([]);
       setCurrentUploadTvId(null);
-      showNotification("Gambar berhasil diunggah!", "success");
+      showNotification(
+        `${selectedFiles.length} gambar berhasil diunggah!`,
+        "success"
+      );
     } catch (error) {
       showNotification(
-        error instanceof Error ? error.message : "Failed to clear display",
+        error instanceof Error ? error.message : "Failed to upload images",
         "error"
       );
     } finally {
@@ -202,11 +215,14 @@ export default function Dashboard() {
 
     try {
       setIsLoading(true);
-      const response = await fetch(`/api/tvs/${currentYoutubeTvId}/youtube`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ youtubeLink: youtubeLink.trim() }),
-      });
+      const response = await fetch(
+        `${API_URL}/api/tvs/${currentYoutubeTvId}/youtube`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ youtubeLink: youtubeLink.trim() }),
+        }
+      );
 
       if (!response.ok) {
         const error = await response.json();
@@ -246,7 +262,9 @@ export default function Dashboard() {
 
     try {
       setIsLoading(true);
-      const response = await fetch(`/api/tvs/${tvId}`, { method: "DELETE" });
+      const response = await fetch(`${API_URL}/api/tvs/${tvId}`, {
+        method: "DELETE",
+      });
 
       if (!response.ok) {
         const error = await response.json();
@@ -258,6 +276,45 @@ export default function Dashboard() {
     } catch (error) {
       showNotification(
         error instanceof Error ? error.message : "Failed to delete TV",
+        "error"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleClearImages = async (tvId: number) => {
+    const tv = tvs.find((t) => t.id === tvId);
+    if (!tv) return;
+
+    if (
+      !confirm(
+        `Apakah Anda yakin ingin menghapus semua gambar dari "${tv.name}"?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const response = await fetch(`${API_URL}/api/tvs/${tvId}/images`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Gagal menghapus gambar");
+      }
+
+      const updatedTv = await response.json();
+      setTvs((prev) => prev.map((t) => (t.id === tvId ? updatedTv : t)));
+      showNotification(
+        `Semua gambar dari "${tv.name}" berhasil dihapus!`,
+        "success"
+      );
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : "Failed to clear images",
         "error"
       );
     } finally {
@@ -404,10 +461,25 @@ export default function Dashboard() {
                 </CardHeader>
 
                 <CardContent className="space-y-6 p-6">
-                  <div className="flex aspect-video items-center justify-center overflow-hidden rounded-xl border-2 border-gray-200 bg-gradient-to-br from-gray-100 to-gray-200 shadow-inner">
-                    {tv.image ? (
+                  <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-xl border-2 border-gray-200 bg-gradient-to-br from-gray-100 to-gray-200 shadow-inner">
+                    {tv.images && tv.images.length > 0 ? (
+                      <>
+                        <img
+                          src={`${API_URL}${tv.images[0]}?v=${
+                            tv.updatedAt ? new Date(tv.updatedAt).getTime() : ""
+                          }`}
+                          alt={`Gambar TV ${tv.id}`}
+                          className="h-full w-full rounded-lg object-cover"
+                        />
+                        {tv.images.length > 1 && (
+                          <div className="absolute bottom-2 right-2 rounded-full bg-black/70 px-2 py-1 text-xs text-white">
+                            +{tv.images.length - 1} lainnya
+                          </div>
+                        )}
+                      </>
+                    ) : tv.image ? (
                       <img
-                        src={`${tv.image}?v=${
+                        src={`${API_URL}${tv.image}?v=${
                           tv.updatedAt ? new Date(tv.updatedAt).getTime() : ""
                         }`}
                         alt={`Gambar TV ${tv.id}`}
@@ -460,6 +532,19 @@ export default function Dashboard() {
                       Hapus
                     </Button>
                   </div>
+                  {tv.images && tv.images.length > 0 && (
+                    <div className="mt-4">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="w-full"
+                        onClick={() => handleClearImages(tv.id)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Hapus Semua Gambar
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -486,27 +571,42 @@ export default function Dashboard() {
                   id="imageFile"
                   type="file"
                   accept="image/*"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  multiple
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    setSelectedFiles(files);
+                  }}
                   required
                   className="rounded-xl border-2 border-dashed border-gray-300 p-4 transition-colors hover:border-green-400"
                 />
                 <div className="rounded-lg border border-green-200 bg-gradient-to-r from-green-50 to-emerald-50 p-3">
                   <p className="text-sm font-medium text-green-800">
-                    Format yang didukung: JPG, PNG, GIF, WebP (Maks: 10MB)
+                    Format yang didukung: JPG, PNG, GIF, WebP (Maks: 10MB per
+                    file)
+                  </p>
+                  <p className="mt-1 text-xs text-green-700">
+                    Pilih beberapa gambar untuk slideshow otomatis
                   </p>
                 </div>
               </div>
-              {selectedFile && (
+              {selectedFiles.length > 0 && (
                 <div className="space-y-3">
                   <Label className="text-lg font-semibold text-gray-700">
-                    Preview:
+                    Preview ({selectedFiles.length} gambar):
                   </Label>
-                  <div className="aspect-video overflow-hidden rounded-xl border-2 border-gray-200 bg-gradient-to-br from-gray-100 to-gray-200 shadow-inner">
-                    <img
-                      src={URL.createObjectURL(selectedFile)}
-                      alt="Preview"
-                      className="h-full w-full object-cover"
-                    />
+                  <div className="grid max-h-60 grid-cols-2 gap-3 overflow-y-auto">
+                    {selectedFiles.map((file, index) => (
+                      <div
+                        key={index}
+                        className="aspect-video overflow-hidden rounded-lg border-2 border-gray-200 bg-gradient-to-br from-gray-100 to-gray-200 shadow-inner"
+                      >
+                        <img
+                          src={URL.createObjectURL(file)}
+                          alt={`Preview ${index + 1}`}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -524,7 +624,11 @@ export default function Dashboard() {
                   disabled={isLoading}
                   className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-2 text-white shadow-lg transition-all duration-200 hover:from-green-600 hover:to-emerald-700 hover:shadow-xl"
                 >
-                  {isLoading ? "Mengunggah..." : "Unggah Gambar"}
+                  {isLoading
+                    ? "Mengunggah..."
+                    : selectedFiles.length > 1
+                    ? `Unggah ${selectedFiles.length} Gambar`
+                    : "Unggah Gambar"}
                 </Button>
               </div>
             </form>

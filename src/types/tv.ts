@@ -1,10 +1,12 @@
 export interface TV {
   id: number;
   name: string;
-  image: string | null;
+  image: string | null; // Keep for backward compatibility
+  images: string[]; // New field for multiple images
   youtubeLink: string | null;
   createdAt: string;
   updatedAt?: string;
+  slideshowInterval?: number; // Slideshow interval in seconds (default: 5)
 }
 
 export interface SocketEvents {
