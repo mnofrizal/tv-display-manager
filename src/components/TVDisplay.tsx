@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { TV, SocketEvents, ZoomCommand } from "@/types/tv";
 
-const API_URL = "http://localhost:1290";
+const API_URL = "https://api.tv-sla.my.id";
 
 export default function TVDisplay() {
   const { id } = useParams<{ id: string }>();

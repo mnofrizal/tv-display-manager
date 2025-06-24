@@ -12,12 +12,12 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:1290',
+      '/api': 'https://api.tv-sla.my.id',
       '/socket.io': {
-        target: 'http://localhost:1290',
+        target: 'https://api.tv-sla.my.id',
         ws: true,
       },
-      '/uploads': 'http://localhost:1290',
+      '/uploads': 'https://api.tv-sla.my.id',
     },
   },
   preview: {
